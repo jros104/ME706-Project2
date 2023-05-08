@@ -22,7 +22,7 @@
 
 #include <Math.h>
 #include <SoftwareSerial.h>
-#include <Classes.h>
+//#include <Classes.h>
 
 
 
@@ -56,7 +56,6 @@
 //State machine states
 enum STATE {
   INITIALISING,
-  RUNNING,
   TESTING,
   STOPPED
 };
@@ -67,7 +66,6 @@ HardwareSerial *SerialCom;
 
 SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 
-int pos = 0;
 
 
 
@@ -123,9 +121,6 @@ void loop(void) //main loop
   switch (machine_state) {
   case INITIALISING:
     machine_state = initialising();
-    break;
-  case RUNNING: //Lipo Battery Volage OK
-    machine_state =  running();
     break;
   case TESTING: //Lipo Battery Volage OK
     machine_state =  testing();
@@ -206,123 +201,6 @@ STATE testing(){
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-STATE running() {
-
-  static unsigned long previous_millis;
-
-  read_serial_command();
-  fast_flash_double_LED_builtin();
-
-  if (millis() - previous_millis > 500) {  //Arduino style 500ms timed execution statement
-    previous_millis = millis();
-
-    SerialCom->println("RUNNING---------");
-    Analog_Range_A4();
-
-#ifndef NO_READ_GYRO
-    GYRO_reading();
-#endif
-
-#ifndef NO_HC-SR04
-    HC_SR04_range();
-#endif
-
-#ifndef NO_BATTERY_V_OK
-    if (!is_battery_voltage_OK()) return STOPPED;
-#endif
-
-
-
-    if (pos == 0)
-    {
-      pos = 45;
-    }
-    else
-    {
-      pos = 0;
-    }
-  }
-
-  return TESTING;
-}
-
 //Stop of Lipo Battery voltage is too low, to protect Battery
 STATE stopped() {
   static byte counter_lipo_voltage_ok;
@@ -345,8 +223,8 @@ STATE stopped() {
       if (counter_lipo_voltage_ok > 10) { //Making sure lipo voltage is stable
         counter_lipo_voltage_ok = 0;
         enable_motors();
-        SerialCom->println("Lipo OK returning to RUN STATE");
-        return RUNNING;
+        SerialCom->println("Lipo OK returning to Testing STATE");
+        return TESTING;
       }
     } else
     {
