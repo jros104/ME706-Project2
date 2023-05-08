@@ -22,8 +22,8 @@
 
 #include <Math.h>
 #include <SoftwareSerial.h>
-//#include <Classes.h>
-
+#include <Classes.h>
+#include <Phototransistor.h>
 
 
 
@@ -37,10 +37,10 @@
 //#define NO_BATTERY_V_OK //Uncomment of BATTERY_V_OK if you do not care about battery damage.
 
 
-#define PHOTO_1_PIN
+#define PHOTO_1_PIN 
 #define PHOTO_2_PIN
-#define PHOTO_2_PIN
-#define PHOTO_4_PIN
+#define PHOTO_3_PIN A1
+#define PHOTO_4_PIN A2
 
 #define IR_1_PIN
 #define IR_2_PIN
@@ -56,6 +56,7 @@
 //State machine states
 enum STATE {
   INITIALISING,
+  FIRE_DETECTION,
   TESTING,
   STOPPED
 };
@@ -68,11 +69,12 @@ SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 
 
 
-
 // Initialise PID
 
 
 // Initialise Phototransistors
+Phototransistor Photo_R_Long(PHOTO_3_PIN, 0, 0, 800);
+Phototransistor Photo_L_Long(PHOTO_4_PIN, 0, 0, 800);
 
 
 // Initialise Sonar
@@ -121,6 +123,9 @@ void loop(void) //main loop
   switch (machine_state) {
   case INITIALISING:
     machine_state = initialising();
+    break;
+  case FIRE_DETECTION: //detect and point robot in direction of fire
+    machine_state =  fire_detection();
     break;
   case TESTING: //Lipo Battery Volage OK
     machine_state =  testing();
@@ -172,7 +177,28 @@ STATE initialising() {
 
   Initialise_Sensors();
 
-  return TESTING;
+  return FIRE_DETECTION;
+}
+
+
+
+STATE fire_detection(){
+
+  int tollerance = 20; //tollerenace in analog values
+  int PhotoRight = analogRead(PHOTO_3_PIN);
+  int PhotoLeft = analogRead(PHOTO_4_PIN);
+
+  wheel_kinematics(0, 0, 1);
+
+  // check if fire is detected by both phototransistors
+  if(Photo_R_Long.IsLightDetected() && Photo_L_Long.IsLightDetected()){
+    // check if fire is centered between both phototransistors
+    if ( abs(PhotoRight - PhotoLeft) < tollerance){
+      return TESTING;
+    }
+  }
+
+  
 }
 
 
