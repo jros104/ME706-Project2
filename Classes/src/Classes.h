@@ -3,7 +3,6 @@
 
 #include <Sensor.h>
 #include <IRSensor.h>
-#include <PositionedSensor.h>
 
 
 #endif

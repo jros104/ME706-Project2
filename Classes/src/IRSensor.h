@@ -10,7 +10,7 @@ class IRSensor : public Sensor {
     float _maxDistance;
 
   public:
-    IRSensor(int pin, float coeff1, float coeff2, float minDistance, float maxDistance) : Sensor(pin) {
+    IRSensor(int pin, float x, float y, float angle, float coeff1, float coeff2, float minDistance, float maxDistance) : Sensor(pin, x, y, angle) {
       pinMode(pin, INPUT);
 
       this->_coeff1 = coeff1;
