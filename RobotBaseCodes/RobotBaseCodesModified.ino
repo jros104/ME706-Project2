@@ -37,8 +37,8 @@
 //#define NO_BATTERY_V_OK //Uncomment of BATTERY_V_OK if you do not care about battery damage.
 
 
-#define PHOTO_1_PIN 
-#define PHOTO_2_PIN
+#define PHOTO_1_PIN A3
+#define PHOTO_2_PIN A5
 #define PHOTO_3_PIN A1
 #define PHOTO_4_PIN A2
 
@@ -57,6 +57,9 @@
 enum STATE {
   INITIALISING,
   FIRE_DETECTION,
+  APPROACH_FIRE,
+  OBSTACLE_AVOIDANCE,
+  EXTINGUISH_FIRE,
   TESTING,
   STOPPED
 };
@@ -64,20 +67,28 @@ enum STATE {
 //Serial Pointer
 
 HardwareSerial *SerialCom;
-
 SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
-
-
 
 // Initialise PID
 
 
 // Initialise Phototransistors
-Phototransistor Photo_R_Long(PHOTO_3_PIN, 0, 0, 800);
-Phototransistor Photo_L_Long(PHOTO_4_PIN, 0, 0, 800);
-
+Phototransistor Photo_R_Long(PHOTO_3_PIN, 0, 0, 200);
+Phototransistor Photo_L_Long(PHOTO_4_PIN, 0, 0, 200);
+Phototransistor Photo_R_Short(PHOTO_2_PIN, 361.09, -0.512, 0);
+Phototransistor Photo_L_Short(PHOTO_1_PIN, 339.87, -0.503, 0);
 
 // Initialise Sonar
+Sonar sonar(7, 6, 10, 0, 0);
+
+// Initialise IR
+IRSensor IR_Long_L(A8, 5, 5, 90, 3239.7, -0.853, 10, 80);
+IRSensor IR_Long_R(A4, 5, -5, -90, 3182.5, -0.852, 10, 80);
+
+// Initialise Phototransistor
+Phototransistor activeA(A0, 1, 1, 50); 
+
+// Initialise 
 
 
 // Kalman Filters
@@ -85,7 +96,14 @@ Phototransistor Photo_L_Long(PHOTO_4_PIN, 0, 0, 800);
 
 // Exit Conditions
 
+// Timer
+Timer timer_sensors(100);
+Timer timer_cases(100);
 
+// Lights
+FireLights firelight(22, 23, 250);
+
+float dist_sonar, dist_photo_R, dist_photo_L;
 
 
 void setup(void)
@@ -100,10 +118,8 @@ void setup(void)
   SerialCom->println("Setup....");
   BluetoothSerial.begin(115200);
   
-
-
-
-
+  timer_sensors.start();
+  timer_cases.start();
 }
 
 
@@ -112,28 +128,47 @@ float prevTime = millis();
 
 void loop(void) //main loop
 {
+  firelight.update();
   static STATE machine_state = INITIALISING;
 
   float x_cord = 1.0;
   float y_cord = 1.0;
   float angle = 1.0;
 
+  if (timer_cases.expired()){
+    switch (machine_state) {
+    case INITIALISING:
+      machine_state = initialising();
+      break;
+    case FIRE_DETECTION: //detect and point robot in direction of fire
+      machine_state =  fire_detection();
+      break;
+    case APPROACH_FIRE:
+      machine_state = approach_fire();
+      break;
+    case OBSTACLE_AVOIDANCE:
+      machine_state = obstacle_avoidance();
+      break;
+    case EXTINGUISH_FIRE:
+      machine_state = extinguish_fire();
+      break;
+    case TESTING: //Lipo Battery Volage OK
+      machine_state =  testing();
+      break;
+    case STOPPED: //Stop of Lipo Battery voltage is too low, to protect Battery
+      machine_state =  stopped();
+      break;
+    };
+    timer_cases.start();
+  }
+  
 
 
-  switch (machine_state) {
-  case INITIALISING:
-    machine_state = initialising();
-    break;
-  case FIRE_DETECTION: //detect and point robot in direction of fire
-    machine_state =  fire_detection();
-    break;
-  case TESTING: //Lipo Battery Volage OK
-    machine_state =  testing();
-    break;
-  case STOPPED: //Stop of Lipo Battery voltage is too low, to protect Battery
-    machine_state =  stopped();
-    break;
-  };
+  if (timer_sensors.expired()){
+    // Get distances of sensors
+    Update_Sensors();
+    timer_sensors.start();
+  }
 
   delay(20);
 
@@ -149,18 +184,9 @@ void Initialise_Sensors(){
 
 void Update_Sensors(){
  //Kalamn update value
-
-
-}
-
-void Control(float errorX, float errorY, float errorZ, float satX, float satY, float satZ, float dt){
-
-  //float effortX = sonarPID.CalculateEffort(errorX, satX, dt);
-  //float effortY = IRPID.CalculateEffort(errorY, satY, dt);
-  //float effortZ = anglePID.CalculateEffort(errorZ, satZ, dt);
-
- // wheel_kinematics(effortX,effortY,-effortZ);
-
+  dist_sonar = sonar.getDistance();
+  dist_photo_R = analogRead(PHOTO_3_PIN);
+  dist_photo_L = analogRead(PHOTO_4_PIN);
 }
 
 
@@ -173,35 +199,102 @@ STATE initialising() {
   SerialCom->println("RUNNING STATE...");
 
 
-
-
   Initialise_Sensors();
 
   return FIRE_DETECTION;
 }
 
 
+int tolerance = 10; //tollerenace in analog values
 
 STATE fire_detection(){
 
-  int tollerance = 20; //tollerenace in analog values
-  int PhotoRight = analogRead(PHOTO_3_PIN);
-  int PhotoLeft = analogRead(PHOTO_4_PIN);
 
-  wheel_kinematics(0, 0, 1);
+  wheel_kinematics(0, 0, 0.08);
 
   // check if fire is detected by both phototransistors
   if(Photo_R_Long.IsLightDetected() && Photo_L_Long.IsLightDetected()){
     // check if fire is centered between both phototransistors
-    if ( abs(PhotoRight - PhotoLeft) < tollerance){
-      return TESTING;
+    if ( abs(dist_photo_R - dist_photo_L) < tolerance){
+      return APPROACH_FIRE;
     }
   }
 
-  
+  return FIRE_DETECTION;
+}
+
+STATE approach_fire(){
+
+  float rotation = 0;
+
+  if (sonar.getXDistance() <= 25)
+  {
+    if (Photo_R_Short.GetDistance() <= 25){
+      wheel_kinematics(0, 0, 0);
+      return EXTINGUISH_FIRE;
+      //return OBSTACLE_AVOIDANCE;
+    }else{
+      return OBSTACLE_AVOIDANCE;
+    }
+  }else if (Photo_R_Short.GetDistance() > 40){
+    float difference = (dist_photo_R - dist_photo_L);
+    float error = 0 - difference;
+    rotation = error * 0.001;
+  }
+
+  wheel_kinematics(4, 0, rotation);
+
+
+  return APPROACH_FIRE;
 }
 
 
+
+STATE obstacle_avoidance(){
+  // Check whether left or right IR reads larger
+  // Move in the direction of larger reading
+  // after certain time stop moving sideways
+  // Drive straight for certain time
+  bool goLeft = false;
+  if (IR_Long_L.getDistance() >= IR_Long_R.getDistance()){
+    goLeft = true;
+  }
+
+  Timer timer_sideways(1000); // Create a 5-second timer
+  timer_sideways.start(); // Start the timer
+  while (true) {
+    wheel_kinematics(0,goLeft ? 4 : -4, 0);
+    if (timer_sideways.expired()) {
+      wheel_kinematics(0,0,0);
+      wheel_kinematics(0, goLeft ? -4 : 4, 0);
+      delay(20);
+      wheel_kinematics(0,0,0);
+
+      break;
+    }
+  }
+  delay(100);
+
+  Timer timer_forwards(1000); // Create a 5-second timer
+  timer_forwards.start(); // Start the timer
+  while (true) {
+    wheel_kinematics(4,0,0);
+    if (timer_forwards.expired()) {
+      wheel_kinematics(-4, 0, 0);
+      delay(20);
+      wheel_kinematics(0,0,0);
+
+      break;
+    }
+  }
+  
+  return FIRE_DETECTION;
+
+}
+
+STATE extinguish_fire(){
+  return EXTINGUISH_FIRE;
+}
 
 
 
@@ -215,7 +308,7 @@ STATE testing(){
     if (!is_battery_voltage_OK()) return STOPPED;
   #endif
 
-
+  Serial.println(Photo_R_Short.GetDistance());
 
   return TESTING;
 }

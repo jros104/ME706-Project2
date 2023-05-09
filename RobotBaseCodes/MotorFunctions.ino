@@ -25,8 +25,8 @@ void wheel_kinematics(float vel_x, float vel_y, float omega_z){
   // Inputs in cm/s
   // Convert to m/s
 
-  vel_x = vel_x / 100.0;
-  vel_y = -vel_y / 100.0;
+  vel_x = -vel_x / 100.0;
+  vel_y = vel_y / 100.0;
 
   float omega_FL = (1 / wheel_radius) * ((vel_x) + (vel_y) + (-(length + width) * omega_z));
   float omega_FR = (1 / wheel_radius) * ((vel_x) + (-vel_y) + ((length + width) * omega_z));
