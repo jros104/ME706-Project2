@@ -12,12 +12,12 @@ public:
   }
   
   
-  float GetDistancePhoto()
+  float GetDistance()
   {
-    float analog_voltage = analogRead(this->analog_pin) * VCC / 1023.0;
-    float estimated_dist = 3; // Calculated through calibration curve
+    int sensorValue = analogRead(this->analog_pin);
+    float distance = this->coeff1 * (pow(sensorValue, this->coeff2));
     
-    return estimated_dist;    
+    return distance;    
   }
   
   bool IsLightDetected()

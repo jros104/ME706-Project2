@@ -10,14 +10,16 @@ private:
 
 public:
   Sonar(int Tpin, int Epin, float x, float y, float angle)
-    : Sensor(pin, x, y, angle),
-
+    : Sensor(pin, x, y, angle){
       this->trigPin = Tpin;
       this->echoPin = Epin;
       pinMode(trigPin, OUTPUT);
       pinMode(echoPin, INPUT);
+    }
 
-  float measureDistance() {
+      
+
+  float getDistance() {
 
     digitalWrite(trigPin, LOW);
     delayMicroseconds(2);

@@ -26,14 +26,14 @@ class Sensor{
 
     float getXDistance() {
       float dist = this->getDistance();
-	    float x1 = dist * cos(this->angle);
-	    return x + x1;
+	  float x1 = dist * cos(this->angle);
+	  return x + x1;
     }
 	
-	  float getYDistance() {
+	float getYDistance() {
       float dist = this->getDistance();
-	    float y1 = dist * sin(this->angle);
-	    return y + y1;
+	  float y1 = dist * sin(this->angle);
+	  return y + y1;
     }
 };
 
