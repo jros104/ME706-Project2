@@ -19,18 +19,4 @@ void enable_motors();
 
 void stop();
 
-void forward(int speed_val);
-void reverse (int speed_val);
-
-void ccw (int speed_val);
-void cw (int speed_val);
-
-void strafe_left (int speed_val);
-void strafe_right (int speed_val);
-
-void diag_forward_right (int speed_val);
-void diag_forward_left (int speed_val);
-void diag_backward_left (int speed_val);
-void diag_backward_right (int speed_val);
-
 #endif
