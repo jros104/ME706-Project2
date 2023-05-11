@@ -1,56 +1,6 @@
-/*
-  MechEng 706 Base Code
-
-  This code provides basic movement and sensor reading for the MechEng 706 Mecanum Wheel Robot Project
-
-  Hardware:
-    Arduino Mega2560 https://www.arduino.cc/en/Guide/ArduinoMega2560
-    MPU-9250 https://www.sparkfun.com/products/13762
-    Ultrasonic Sensor - HC-SR04 https://www.sparkfun.com/products/13959
-    Infrared Proximity Sensor - Sharp https://www.sparkfun.com/products/242
-    Infrared Proximity Sensor Short Range - Sharp https://www.sparkfun.com/products/12728
-    Servo - Generic (Sub-Micro Size) https://www.sparkfun.com/products/9065
-    Vex Motor Controller 29 https://www.vexrobotics.com/276-2193.html
-    Vex Motors https://www.vexrobotics.com/motors.html
-    Turnigy nano-tech 2200mah 2S https://hobbyking.com/en_us/turnigy-nano-tech-2200mah-2s-25-50c-lipo-pack.html
-
-  Date: 11/11/2016
-  Author: Logan Stuart
-  Modified: 15/02/2018
-  Author: Logan Stuart
-*/
-
 #include <Math.h>
 #include <SoftwareSerial.h>
 #include <Classes.h>
-#include <Phototransistor.h>
-
-
-
-// Serial Data input pin
-#define BLUETOOTH_RX 10
-// Serial Data output pin
-#define BLUETOOTH_TX 11
-
-#define NO_READ_GYRO  //Uncomment if GYRO is not attached.
-#define NO_HC-SR04 //Uncomment of HC-SR04 ultrasonic ranging sensor is not attached.
-//#define NO_BATTERY_V_OK //Uncomment of BATTERY_V_OK if you do not care about battery damage.
-
-
-#define PHOTO_1_PIN A3
-#define PHOTO_2_PIN A5
-#define PHOTO_3_PIN A1
-#define PHOTO_4_PIN A2
-
-#define IR_1_PIN
-#define IR_2_PIN
-#define IR_3_PIN
-#define IR_4_PIN
-
-#define SONAR_ECHO_PIN
-#define SONAR_TRIG_PIN
-
-#define FAN_PIN
 
 
 //State machine states
@@ -58,7 +8,7 @@ enum STATE {
   INITIALISING,
   FIRE_DETECTION,
   APPROACH_FIRE,
-  OBSTACLE_AVOIDANCE,
+  OBSTIK,
   EXTINGUISH_FIRE,
   TESTING,
   STOPPED
@@ -71,27 +21,35 @@ SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 
 // Initialise PID
 
-
 // Initialise Phototransistors
-Phototransistor Photo_R_Long(PHOTO_3_PIN, 0, 0, 200);
-Phototransistor Photo_L_Long(PHOTO_4_PIN, 0, 0, 200);
-Phototransistor Photo_R_Short(PHOTO_2_PIN, 361.09, -0.512, 0);
-Phototransistor Photo_L_Short(PHOTO_1_PIN, 339.87, -0.503, 0);
+Phototransistor Photo_R_Long(PHOTO_R_LONG_PIN, 0, 0, 200);
+Phototransistor Photo_L_Long(PHOTO_L_LONG_PIN, 0, 0, 200);
+Phototransistor Photo_R_Short(PHOTO_R_SHORT_PIN, 361.09, -0.512, 0);
+Phototransistor Photo_L_Short(PHOTO_L_SHORT_PIN, 339.87, -0.503, 0);
 
 // Initialise Sonar
-Sonar sonar(7, 6, 10, 0, 0);
+Sonar sonar(SONAR_TRIG_PIN, SONAR_ECHO_PIN, 10, 0, 0);
 
 // Initialise IR
-IRSensor IR_Long_L(A8, 5, 5, 90, 3239.7, -0.853, 10, 80);
-IRSensor IR_Long_R(A4, 5, -5, -90, 3182.5, -0.852, 10, 80);
+IRSensor IR_L_Long(IR_L_LONG_PIN, 5, 5, 90, 3239.7, -0.853, 10, 80);
+IRSensor IR_R_Long(IR_R_LONG_PIN, 5, -5, -90, 3182.5, -0.852, 10, 80);
+IRSensor IR_L_Short(IR_L_SHORT_PIN, 8.5, -5, -90, 2095.2, -0.944, 4, 30);
+IRSensor IR_R_Short(IR_R_SHORT_PIN, 8.5, -5, -90, 2095.2, -0.944, 4, 30);
 
-// Initialise Phototransistor
-Phototransistor activeA(A0, 1, 1, 50); 
-
-// Initialise 
+// Initialise Fan
+Fan fan(FAN_PIN);
 
 
 // Kalman Filters
+Kalman Kalman_Photo_L_Long(1, 1, 0, 0);
+Kalman Kalman_Photo_R_Long(1, 1, 0, 0);
+Kalman Kalman_Photo_L_Short(1, 1, 0, 0);
+Kalman Kalman_Photo_R_Short(1, 1, 0, 0);
+
+Kalman Kalman_IR_L_Long(1, 10, 80, 0);
+Kalman Kalman_IR_R_Long(1, 10, 80, 0);
+Kalman Kalman_IR_L_Short(1, 1, 30, 0);
+Kalman Kalman_IR_R_Short(1, 1, 30, 0);
 
 
 // Exit Conditions
@@ -103,8 +61,14 @@ Timer timer_cases(100);
 // Lights
 FireLights firelight(22, 23, 250);
 
-float dist_sonar, dist_photo_R, dist_photo_L;
+float dist_sonar, value_photo_R_long, value_photo_L_long, dist_photo_R_short, dist_photo_L_short,
+      dist_IR_R_long, dist_IR_L_long, dist_IR_R_short, dist_IR_L_short;
+int fires_extinguished = 0;
 
+//   ___ ___ _____ _   _ ___ 
+//  / __| __|_   _| | | | _ \
+//  \__ \ _|  | | | |_| |  _/
+//  |___/___| |_|  \___/|_|  
 
 void setup(void)
 {
@@ -122,18 +86,16 @@ void setup(void)
   timer_cases.start();
 }
 
-
-
-float prevTime = millis();
+//   _    ___   ___  ___ 
+//  | |  / _ \ / _ \| _ \
+//  | |_| (_) | (_) |  _/
+//  |____\___/ \___/|_|  
+                      
 
 void loop(void) //main loop
 {
   firelight.update();
   static STATE machine_state = INITIALISING;
-
-  float x_cord = 1.0;
-  float y_cord = 1.0;
-  float angle = 1.0;
 
   if (timer_cases.expired()){
     switch (machine_state) {
@@ -146,8 +108,8 @@ void loop(void) //main loop
     case APPROACH_FIRE:
       machine_state = approach_fire();
       break;
-    case OBSTACLE_AVOIDANCE:
-      machine_state = obstacle_avoidance();
+    case OBSTIK:
+      machine_state = obstik();
       break;
     case EXTINGUISH_FIRE:
       machine_state = extinguish_fire();
@@ -163,7 +125,6 @@ void loop(void) //main loop
   }
   
 
-
   if (timer_sensors.expired()){
     // Get distances of sensors
     Update_Sensors();
@@ -176,6 +137,11 @@ void loop(void) //main loop
 
 
 
+//   ___ _   _ _  _  ___ _____ ___ ___  _  _ ___ 
+//  | __| | | | \| |/ __|_   _|_ _/ _ \| \| / __|
+//  | _|| |_| | .` | (__  | |  | | (_) | .` \__ \
+//  |_|  \___/|_|\_|\___| |_| |___\___/|_|\_|___/
+                                              
 
 void Initialise_Sensors(){
 //Kalman set first estimate
@@ -185,10 +151,42 @@ void Initialise_Sensors(){
 void Update_Sensors(){
  //Kalamn update value
   dist_sonar = sonar.getDistance();
-  dist_photo_R = analogRead(PHOTO_3_PIN);
-  dist_photo_L = analogRead(PHOTO_4_PIN);
+
+  value_photo_R_long = Kalman_Photo_R_Long.updateEstimate(Photo_R_Long.getAnalog());
+  value_photo_L_long = Kalman_Photo_L_Long.updateEstimate(Photo_L_Long.getAnalog());
+  dist_photo_R_short = Kalman_Photo_L_Short.updateEstimate(Photo_R_Short.getDistance());
+  dist_photo_L_short = Kalman_Photo_L_Short.updateEstimate(Photo_L_Short.getDistance());
+
+  dist_IR_R_long = Kalman_IR_R_Long.updateEstimate(IR_R_Long.getDistance());
+  dist_IR_L_long = Kalman_IR_L_Long.updateEstimate(IR_L_Long.getDistance());
+  dist_IR_R_short = Kalman_IR_R_Short.updateEstimate(IR_R_Short.getDistance());
+  dist_IR_L_short = Kalman_IR_L_Short.updateEstimate(IR_L_Short.getDistance());
+
+
 }
 
+void MoveForTime(float x_speed, float y_speed, float rot_speed, float time, bool use_breaking){
+  Timer timer(time);
+  timer.start(); // Start the timer
+  while (true) {
+    wheel_kinematics(x_speed,y_speed,rot_speed);
+    if (timer.expired()) {
+      if (use_breaking){
+        wheel_kinematics(-x_speed, -y_speed, -rot_speed);
+        delay(20);
+      }
+      wheel_kinematics(0,0,0);
+      break;
+    }
+  }
+}
+
+
+//   ___ _  _ ___ _____ ___   _   _    ___ ___ ___ _  _  ___ 
+//  |_ _| \| |_ _|_   _|_ _| /_\ | |  |_ _/ __|_ _| \| |/ __|
+//   | || .` || |  | |  | | / _ \| |__ | |\__ \| || .` | (_ |
+//  |___|_|\_|___| |_| |___/_/ \_\____|___|___/___|_|\_|\___|
+                                                          
 
 STATE initialising() {
   //initialising
@@ -205,17 +203,21 @@ STATE initialising() {
 }
 
 
-int tolerance = 10; //tollerenace in analog values
+
+
+//   ___ ___ ___ ___   ___  ___ _____ ___ ___ _____ ___ ___  _  _ 
+//  | __|_ _| _ \ __| |   \| __|_   _| __/ __|_   _|_ _/ _ \| \| |
+//  | _| | ||   / _|  | |) | _|  | | | _| (__  | |  | | (_) | .` |
+//  |_| |___|_|_\___| |___/|___| |_| |___\___| |_| |___\___/|_|\_|
 
 STATE fire_detection(){
 
-
-  wheel_kinematics(0, 0, 0.08);
+  wheel_kinematics(0, 0, FIRE_DETECTION_ROTATION_SPEED);
 
   // check if fire is detected by both phototransistors
   if(Photo_R_Long.IsLightDetected() && Photo_L_Long.IsLightDetected()){
     // check if fire is centered between both phototransistors
-    if ( abs(dist_photo_R - dist_photo_L) < tolerance){
+    if ( abs(value_photo_R_long - value_photo_L_long) < FIRE_DETECTION_TOLERANCE){
       return APPROACH_FIRE;
     }
   }
@@ -223,84 +225,88 @@ STATE fire_detection(){
   return FIRE_DETECTION;
 }
 
+
+//     _   ___ ___ ___  ___   _   ___ _  _   ___ ___ ___ ___ 
+//    /_\ | _ \ _ \ _ \/ _ \ /_\ / __| || | | __|_ _| _ \ __|
+//   / _ \|  _/  _/   / (_) / _ \ (__| __ | | _| | ||   / _| 
+//  /_/ \_\_| |_| |_|_\\___/_/ \_\___|_||_| |_| |___|_|_\___|
+                                                          
+
 STATE approach_fire(){
 
   float rotation = 0;
 
-  if (sonar.getXDistance() <= 25)
+  if (sonar.getXDistance() <= APPROACH_FIRE_DIST || dist_IR_L_short <= 10)
   {
-    if (Photo_R_Short.GetDistance() <= 25){
+    if (Photo_R_Short.getDistance() <= APPROACH_FIRE_DIST){
       wheel_kinematics(0, 0, 0);
       return EXTINGUISH_FIRE;
-      //return OBSTACLE_AVOIDANCE;
+      //return OBSTIK;
     }else{
-      return OBSTACLE_AVOIDANCE;
+      return OBSTIK;
     }
-  }else if (Photo_R_Short.GetDistance() > 40){
-    float difference = (dist_photo_R - dist_photo_L);
-    float error = 0 - difference;
-    rotation = error * 0.001;
   }
 
-  wheel_kinematics(4, 0, rotation);
+  wheel_kinematics(BASE_SPEED, 0, rotation);
 
 
   return APPROACH_FIRE;
 }
 
+//    ___  ___ ___ _____ ___ _  __
+//   / _ \| _ ) __|_   _|_ _| |/ /
+//  | (_) | _ \__ \ | |  | || ' < 
+//   \___/|___/___/ |_| |___|_|\_\
+                                                                                   
 
+STATE obstik(){
 
-STATE obstacle_avoidance(){
-  // Check whether left or right IR reads larger
-  // Move in the direction of larger reading
-  // after certain time stop moving sideways
-  // Drive straight for certain time
   bool goLeft = false;
-  if (IR_Long_L.getDistance() >= IR_Long_R.getDistance()){
+  if (dist_IR_L_long >= dist_IR_R_long){
     goLeft = true;
   }
+  
+  MoveForTime(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0, 1000, true);
 
-  Timer timer_sideways(1000); // Create a 5-second timer
-  timer_sideways.start(); // Start the timer
-  while (true) {
-    wheel_kinematics(0,goLeft ? 4 : -4, 0);
-    if (timer_sideways.expired()) {
-      wheel_kinematics(0,0,0);
-      wheel_kinematics(0, goLeft ? -4 : 4, 0);
-      delay(20);
-      wheel_kinematics(0,0,0);
-
-      break;
-    }
-  }
   delay(100);
 
-  Timer timer_forwards(1000); // Create a 5-second timer
-  timer_forwards.start(); // Start the timer
-  while (true) {
-    wheel_kinematics(4,0,0);
-    if (timer_forwards.expired()) {
-      wheel_kinematics(-4, 0, 0);
-      delay(20);
-      wheel_kinematics(0,0,0);
-
-      break;
-    }
-  }
+  MoveForTime(AVOID_SPEED, 0, 0, AVOID_DELAY, true);
   
   return FIRE_DETECTION;
 
 }
 
+
+//   _____  _______ ___ _  _  ___ _   _ ___ ___ _  _   ___ ___ ___ ___ 
+//  | __\ \/ /_   _|_ _| \| |/ __| | | |_ _/ __| || | | __|_ _| _ \ __|
+//  | _| >  <  | |  | || .` | (_ | |_| || |\__ \ __ | | _| | ||   / _| 
+//  |___/_/\_\ |_| |___|_|\_|\___|\___/|___|___/_||_| |_| |___|_|_\___|
+
 STATE extinguish_fire(){
-  return EXTINGUISH_FIRE;
+  fan.Toggle(ON);
+  Timer timer_fan(10000);
+  while (true){
+    bool fire_detected = Photo_R_Short.IsLightDetected() || Photo_L_Short.IsLightDetected();
+    if (timer_fan.expired() || !fire_detected){
+      fan.Toggle(OFF);
+      break;
+    }
+  }
+
+  fires_extinguished++;
+
+  if (fires_extinguished == 2) return TESTING;
+
+  return FIRE_DETECTION;
 }
 
 
 
-
-
-
+//   _____ ___ ___ _____ ___ _  _  ___ 
+//  |_   _| __/ __|_   _|_ _| \| |/ __|
+//    | | | _|\__ \ | |  | || .` | (_ |
+//    |_| |___|___/ |_| |___|_|\_|\___|
+                                  
 
 STATE testing(){
 
@@ -308,13 +314,10 @@ STATE testing(){
     if (!is_battery_voltage_OK()) return STOPPED;
   #endif
 
-  Serial.println(Photo_R_Short.GetDistance());
+  Serial.println(dist_photo_R_short);
 
   return TESTING;
 }
-
-
-
 
 
 
@@ -331,6 +334,7 @@ STATE stopped() {
   if (millis() - previous_millis > 500) { //print massage every 500ms
     previous_millis = millis();
     SerialCom->println("STOPPED---------");
+
 
 
 #ifndef NO_BATTERY_V_OK
