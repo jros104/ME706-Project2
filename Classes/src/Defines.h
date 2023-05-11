@@ -1,6 +1,7 @@
 #ifndef Defines_H
 #define Defines_H
 
+
 // Serial Data input pin
 #define BLUETOOTH_RX 10
 // Serial Data output pin
@@ -37,7 +38,7 @@
 // Approach Fire
 #define APPROACH_FIRE_DIST 25
 
-#define BASE_SPEED 3
+#define BASE_SPEED 2
 
 // Obstacle Avoidance
 #define AVOID_SPEED BASE_SPEED
