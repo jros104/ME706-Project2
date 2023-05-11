@@ -41,8 +41,8 @@ Fan fan(FAN_PIN);
 
 
 // Kalman Filters
-Kalman Kalman_Photo_L_Long(1, 1, 0, 0);
-Kalman Kalman_Photo_R_Long(1, 1, 0, 0);
+Kalman Kalman_Photo_L_Long(0.1, 1, 0, 0);
+Kalman Kalman_Photo_R_Long(0.1, 1, 0, 0);
 Kalman Kalman_Photo_L_Short(1, 1, 0, 0);
 Kalman Kalman_Photo_R_Short(1, 1, 0, 0);
 
@@ -236,15 +236,18 @@ STATE approach_fire(){
 
   float rotation = 0;
 
-  if (sonar.getXDistance() <= APPROACH_FIRE_DIST || dist_IR_L_short <= 10)
-  {
-    if (Photo_R_Short.getDistance() <= APPROACH_FIRE_DIST){
-      wheel_kinematics(0, 0, 0);
-      return EXTINGUISH_FIRE;
-      //return OBSTIK;
-    }else{
-      return OBSTIK;
-    }
+  if ((sonar.getXDistance() <= APPROACH_FIRE_DIST || dist_IR_L_short <= 8) && dist_photo_R_short > 33){
+    return OBSTIK;
+  } 
+  else if(dist_photo_R_short <= 33 && sonar.getDistance() < 7){
+    wheel_kinematics(0, 0, 0);
+    return EXTINGUISH_FIRE;
+  }else{
+    float difference = (value_photo_R_long - value_photo_L_long);
+    float error = 0 - difference;
+    rotation = error * 0.0001;
+
+    rotation = saturate(rotation, 0.1);
   }
 
   wheel_kinematics(BASE_SPEED, 0, rotation);
@@ -313,8 +316,16 @@ STATE testing(){
   #ifndef NO_BATTERY_V_OK
     if (!is_battery_voltage_OK()) return STOPPED;
   #endif
+  float rotation = 0;
+  float difference = (value_photo_R_long - value_photo_L_long);
+  float error = 0 - difference;
+  rotation = error * 0.001;
 
-  Serial.println(dist_photo_R_short);
+  rotation = saturate(rotation, 0.1);
+
+  wheel_kinematics(0, 0, 0);
+
+  Serial.println(error);
 
   return TESTING;
 }
