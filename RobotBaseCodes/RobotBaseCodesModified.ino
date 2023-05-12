@@ -28,13 +28,13 @@ Phototransistor Photo_R_Short(PHOTO_R_SHORT_PIN, 361.09, -0.512, 0);
 Phototransistor Photo_L_Short(PHOTO_L_SHORT_PIN, 339.87, -0.503, 0);
 
 // Initialise Sonar
-Sonar sonar(SONAR_TRIG_PIN, SONAR_ECHO_PIN, 10, 0, 0);
+Sonar sonar(SONAR_TRIG_PIN, SONAR_ECHO_PIN, 12, 0, 0);
 
 // Initialise IR
-IRSensor IR_L_Long(IR_L_LONG_PIN, 5, 5, 90, 3239.7, -0.853, 10, 80);
-IRSensor IR_R_Long(IR_R_LONG_PIN, 5, -5, -90, 3182.5, -0.852, 10, 80);
-IRSensor IR_L_Short(IR_L_SHORT_PIN, 8.5, -5, -90, 2095.2, -0.944, 4, 30);
-IRSensor IR_R_Short(IR_R_SHORT_PIN, 8.5, -5, -90, 2095.2, -0.944, 4, 30);
+IRSensor IR_L_Long(IR_L_LONG_PIN, 5, 4, 90, 3239.7, -0.853, 10, 80);
+IRSensor IR_R_Long(IR_R_LONG_PIN, 5, -4, -90, 3182.5, -0.852, 10, 80);
+IRSensor IR_L_Short(IR_L_SHORT_PIN, 8.5, 5, 45, 2095.2, -0.944, 4, 30);
+IRSensor IR_R_Short(IR_R_SHORT_PIN, 8.5, -5, -45, 2095.2, -0.944, 4, 30);
 
 // Initialise Fan
 Fan fan(FAN_PIN);
@@ -51,6 +51,8 @@ Kalman Kalman_IR_R_Long(1, 10, 80, 0);
 Kalman Kalman_IR_L_Short(1, 1, 30, 0);
 Kalman Kalman_IR_R_Short(1, 1, 30, 0);
 
+Kalman Kalman_Force_X(1, 1, 0, 0);
+Kalman Kalman_Force_Y(1, 1, 0, 0);
 
 // Exit Conditions
 
@@ -129,6 +131,7 @@ void loop(void) //main loop
     // Get distances of sensors
     Update_Sensors();
     timer_sensors.start();
+    repulsiveForce();
   }
 
   delay(20);
@@ -163,6 +166,43 @@ void Update_Sensors(){
   dist_IR_L_short = Kalman_IR_L_Short.updateEstimate(IR_L_Short.getDistance());
 
 
+}
+float vec[2] = {0,0};
+float distances_x[5] = {0,0,0,0,0};
+float distances_y[5] = {0,0,0,0,0};
+float rep_force_constant = 5;
+float rep_force_threshold = 20;
+float force_x = 0;
+float force_y = 0;
+
+void repulsiveForce(){
+  force_x = 0;
+  force_y = 0;
+  
+  distances_x[0] = 0;
+  distances_x[1] = IR_L_Short.getXDistance();
+  distances_x[2] = sonar.getXDistance();
+  distances_x[3] = 0;
+  distances_x[4] = 0;
+
+  distances_y[0] = IR_L_Long.getYDistance();
+  distances_y[1] = IR_L_Short.getYDistance();
+  distances_y[2] = 0;
+  distances_y[3] = 0;
+  distances_y[4] = IR_R_Long.getYDistance();
+
+  for (int i = 0; i < 5; i++){
+    if (abs(distances_x[i]) <= rep_force_threshold && distances_x[i] != 0) {
+      Serial.print(distances_x[i]);
+      Serial.print("\t");
+      force_x += rep_force_constant / distances_x[i];
+    }
+    if (abs(distances_y[i]) <= rep_force_threshold && distances_y[i] != 0){ 
+      force_y += rep_force_constant / distances_y[i];
+    }
+  }
+
+  Serial.println();
 }
 
 void MoveForTime(float x_speed, float y_speed, float rot_speed, float time, bool use_breaking){
@@ -199,7 +239,7 @@ STATE initialising() {
 
   Initialise_Sensors();
 
-  return FIRE_DETECTION;
+  return OBSTIK;
 }
 
 
@@ -242,13 +282,12 @@ STATE approach_fire(){
   else if(dist_photo_R_short <= 33 && sonar.getDistance() < 7){
     wheel_kinematics(0, 0, 0);
     return EXTINGUISH_FIRE;
-  }else{
-    float difference = (value_photo_R_long - value_photo_L_long);
-    float error = 0 - difference;
-    rotation = error * 0.0001;
-
-    rotation = saturate(rotation, 0.1);
   }
+
+  float difference = (value_photo_R_long - value_photo_L_long);
+  float error = 0 - difference;
+  rotation = error * 0.0001;
+  rotation = saturate(rotation, 0.1);
 
   wheel_kinematics(BASE_SPEED, 0, rotation);
 
@@ -269,13 +308,13 @@ STATE obstik(){
     goLeft = true;
   }
   
-  MoveForTime(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0, 1000, true);
+  float speed_x = Kalman_Force_X.updateEstimate(-force_x);
+  float speed_y = Kalman_Force_Y.updateEstimate(-force_y);
 
-  delay(100);
+  wheel_kinematics(speed_x, speed_y, 0);
 
-  MoveForTime(AVOID_SPEED, 0, 0, AVOID_DELAY, true);
   
-  return FIRE_DETECTION;
+  return OBSTIK;
 
 }
 
@@ -316,16 +355,13 @@ STATE testing(){
   #ifndef NO_BATTERY_V_OK
     if (!is_battery_voltage_OK()) return STOPPED;
   #endif
-  float rotation = 0;
-  float difference = (value_photo_R_long - value_photo_L_long);
-  float error = 0 - difference;
-  rotation = error * 0.001;
-
-  rotation = saturate(rotation, 0.1);
-
-  wheel_kinematics(0, 0, 0);
-
-  Serial.println(error);
+  // for (int i = 0; i < 5; i++){
+  //   Serial.print(distances_y[i]);
+  //   Serial.print("\t");
+  // }
+  // Serial.print(force_x);
+  // Serial.print("\t");
+  // Serial.println(force_y);
 
   return TESTING;
 }
