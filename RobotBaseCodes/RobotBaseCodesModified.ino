@@ -21,7 +21,8 @@ HardwareSerial *SerialCom;
 SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 
 // Initialise PID
-PIDController fire_detect_PID(1.0, 0.00001, 0.001);
+PIDController fire_detect_PID(0.001, 0, 0.001);
+PIDController fire_approach_PID(0.001, 0, 0);
 
 // Initialise Phototransistors
 Phototransistor Photo_R_Long(PHOTO_R_LONG_PIN, 0, 0, 200);
@@ -217,37 +218,26 @@ STATE initialising() {
 
 STATE fire_detection(){
 
-   wheel_kinematics(0, 0, FIRE_DETECTION_ROTATION_SPEED));
+   wheel_kinematics(0, 0, FIRE_DETECTION_ROTATION_SPEED);
 
   // check if fire is detected by a phototransistors
   if(Photo_R_Long.IsLightDetected() || Photo_L_Long.IsLightDetected()){
      return FIRE_ALIGNMENT;
   }
-return FIRE_DETECTION;
+  return FIRE_DETECTION;
 }
 
 STATE fire_alignment() {
- 
-  int PhotoRight; 
-  int PhotoLeft;
-  int error;
-  float Z;
-  PhotoRight = analogRead(PHOTO_3_PIN);
-  PhotoLeft = analogRead(PHOTO_4_PIN);
 
-//  Serial.print(PhotoLeft);
-//  Serial.print(",");
-//  Serial.println(PhotoRight);
-
-  error = PhotoRight - PhotoLeft;
-
-  Z = fire_detect_PID.CalculateEffort(error,0.1);
+  int error = value_photo_L_long - value_photo_R_long;
+  float Z = fire_detect_PID.CalculateEffort(error,0.1);
   wheel_kinematics(0, 0, Z);
+
   if(abs(error) < FIRE_DETECTION_TOLERANCE){
     return APPROACH_FIRE;
   }
 
-return FIRE_ALIGNMENT;
+  return FIRE_ALIGNMENT;
   
 }
 
@@ -258,26 +248,35 @@ return FIRE_ALIGNMENT;
 //  /_/ \_\_| |_| |_|_\\___/_/ \_\___|_||_| |_| |___|_|_\___|
                                                           
 
+bool goLeft = true;
+bool movingSideways = true;
+bool movingForwards = false;
+
 STATE approach_fire(){
 
-  float rotation = 0;
-
-  if ((sonar.getXDistance() <= APPROACH_FIRE_DIST || dist_IR_L_short <= 8) && dist_photo_R_short > 33){
-    return OBSTIK;
-  } 
-  else if(dist_photo_R_short <= 33 && sonar.getDistance() < 7){
+  if(dist_sonar <= OBSTIK_DIST || dist_IR_L_short <= OBSTIK_DIST || dist_IR_R_short <= OBSTIK_DIST){
+    
+    wheel_kinematics(-BASE_SPEED, 0, 0);
+    delay(20);
     wheel_kinematics(0, 0, 0);
-    return EXTINGUISH_FIRE;
-  }else{
-    float difference = (value_photo_R_long - value_photo_L_long);
-    float error = 0 - difference;
-    rotation = error * 0.0001;
 
-    rotation = saturate(rotation, 0.1);
+    if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) return EXTINGUISH_FIRE;
+
+    if (dist_IR_L_short <= OBSTIK_DIST){
+      if (dist_IR_R_long >= OBSTIK_MIN_SPACE) goLeft = false;
+    }else if (dist_IR_R_short <= OBSTIK_DIST){
+      if (dist_IR_L_long < OBSTIK_MIN_SPACE) goLeft = false;
+    }else if (dist_sonar <= OBSTIK_DIST){
+      if (dist_IR_L_long < OBSTIK_MIN_SPACE) goLeft = false;
+    }
+
+    return OBSTIK;
   }
 
-  wheel_kinematics(BASE_SPEED, 0, rotation);
+  int error = value_photo_L_long - value_photo_R_long;
+  float Z = fire_detect_PID.CalculateEffort(error,0.1);
 
+  wheel_kinematics(BASE_SPEED, 0, Z);
 
   return APPROACH_FIRE;
 }
@@ -290,18 +289,22 @@ STATE approach_fire(){
 
 STATE obstik(){
 
-  bool goLeft = false;
-  if (dist_IR_L_long >= dist_IR_R_long){
-    goLeft = true;
+  if (movingSideways){
+    wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
+
+    if (dist_IR_R_long >= OBSTIK_CLEAR && dist_IR_L_long >= OBSTIK_CLEAR && dist_sonar >= OBSTIK_CLEAR){
+      MoveForTime(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0, 100, true);
+      movingSideways = false;
+    }
+
+  }
+  else{
+    MoveForTime(AVOID_SPEED, 0, 0, AVOID_DELAY, true);
+    return FIRE_DETECTION;
+
   }
   
-  MoveForTime(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0, 1000, true);
-
-  delay(100);
-
-  MoveForTime(AVOID_SPEED, 0, 0, AVOID_DELAY, true);
-  
-  return FIRE_DETECTION;
+  return OBSTIK;
 
 }
 
