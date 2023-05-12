@@ -7,6 +7,7 @@
 enum STATE {
   INITIALISING,
   FIRE_DETECTION,
+  FIRE_ALIGNMENT,
   APPROACH_FIRE,
   OBSTIK,
   EXTINGUISH_FIRE,
@@ -20,6 +21,7 @@ HardwareSerial *SerialCom;
 SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 
 // Initialise PID
+PIDController fire_detect_PID(1.0, 0.00001, 0.001);
 
 // Initialise Phototransistors
 Phototransistor Photo_R_Long(PHOTO_R_LONG_PIN, 0, 0, 200);
@@ -101,6 +103,9 @@ void loop(void) //main loop
     switch (machine_state) {
     case INITIALISING:
       machine_state = initialising();
+      break;
+    case FIRE_ALIGNMENT:
+      machine_state = fire_alignment();
       break;
     case FIRE_DETECTION: //detect and point robot in direction of fire
       machine_state =  fire_detection();
@@ -212,17 +217,38 @@ STATE initialising() {
 
 STATE fire_detection(){
 
-  wheel_kinematics(0, 0, FIRE_DETECTION_ROTATION_SPEED);
+   wheel_kinematics(0, 0, FIRE_DETECTION_ROTATION_SPEED));
 
-  // check if fire is detected by both phototransistors
-  if(Photo_R_Long.IsLightDetected() && Photo_L_Long.IsLightDetected()){
-    // check if fire is centered between both phototransistors
-    if ( abs(value_photo_R_long - value_photo_L_long) < FIRE_DETECTION_TOLERANCE){
-      return APPROACH_FIRE;
-    }
+  // check if fire is detected by a phototransistors
+  if(Photo_R_Long.IsLightDetected() || Photo_L_Long.IsLightDetected()){
+     return FIRE_ALIGNMENT;
+  }
+return FIRE_DETECTION;
+}
+
+STATE fire_alignment() {
+ 
+  int PhotoRight; 
+  int PhotoLeft;
+  int error;
+  float Z;
+  PhotoRight = analogRead(PHOTO_3_PIN);
+  PhotoLeft = analogRead(PHOTO_4_PIN);
+
+//  Serial.print(PhotoLeft);
+//  Serial.print(",");
+//  Serial.println(PhotoRight);
+
+  error = PhotoRight - PhotoLeft;
+
+  Z = fire_detect_PID.CalculateEffort(error,0.1);
+  wheel_kinematics(0, 0, Z);
+  if(abs(error) < FIRE_DETECTION_TOLERANCE){
+    return APPROACH_FIRE;
   }
 
-  return FIRE_DETECTION;
+return FIRE_ALIGNMENT;
+  
 }
 
 
