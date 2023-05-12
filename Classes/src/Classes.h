@@ -10,5 +10,6 @@
 #include <FireLights.h>
 #include <Defines.h>
 #include <Kalman.h>
+#include <PID.h>
 
 #endif

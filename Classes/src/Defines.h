@@ -41,6 +41,9 @@
 #define BASE_SPEED 2
 
 // Obstacle Avoidance
+#define OBSTIK_DIST 7
+#define OBSTIK_MIN_SPACE 25
+#define OBSTIK_CLEAR 20
 #define AVOID_SPEED BASE_SPEED
 #define AVOID_DELAY (125/2.0 * pow(AVOID_SPEED,2) -875 * AVOID_SPEED + 3500)
 
