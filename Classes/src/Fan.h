@@ -11,17 +11,15 @@ class Fan{
 	public:
 
 		Fan(int pin){
-
 			this->_pin = pin;
-			pinMode(pin, OUTPUT);
-			digitalWrite(pin, HIGH);
-
+			pinMode(this->_pin, OUTPUT);
+			digitalWrite(this->_pin, HIGH);
 		}
 
 		void Toggle(bool On){
-		
-			digitalWrite(pin, On ? LOW : HIGH);
-
+			Serial.print("Fan: ");
+			Serial.println(On ? "ON" : "OFF");
+			digitalWrite(this->_pin, On ? LOW : HIGH);
 		}
 };
 
