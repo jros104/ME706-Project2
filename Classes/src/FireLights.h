@@ -11,15 +11,20 @@ public:
     previousMillis = 0;
     ledState = LOW;
   }
-
-  void update() {
-    unsigned long currentMillis = millis();
-    if (currentMillis - previousMillis >= flashInterval) {
-      previousMillis = currentMillis;
-      ledState = !ledState;
-      digitalWrite(led1Pin, ledState);
-      digitalWrite(led2Pin, !ledState);
-    }
+  
+  void Toggle(bool On){
+	if (On){
+		unsigned long currentMillis = millis();
+		if (currentMillis - previousMillis >= flashInterval) {
+			previousMillis = currentMillis;
+			ledState = !ledState;
+			digitalWrite(led1Pin, ledState);
+			digitalWrite(led2Pin, !ledState);
+		}
+	}else{
+		digitalWrite(led1Pin, LOW);
+		digitalWrite(led2Pin, LOW);
+	}
   }
 
 private:

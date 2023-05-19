@@ -12,17 +12,21 @@ public:
   }
   
   
-  float GetDistance()
+  float getDistance()
   {
     int sensorValue = analogRead(this->analog_pin);
     float distance = this->coeff1 * (pow(sensorValue, this->coeff2));
     
-    return distance;    
+    return distance > 999 ? 999: distance;    
   }
+  
+	float getAnalog(){
+		return analogRead(this->analog_pin);
+	}
   
   bool IsLightDetected()
   {
-    return analogRead(this->analog_pin) > this->threshold ? true : false;
+    return analogRead(this->analog_pin) > this->threshold;
   }
   
 private:

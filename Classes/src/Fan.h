@@ -17,6 +17,8 @@ class Fan{
 		}
 
 		void Toggle(bool On){
+			Serial.print("Fan: ");
+			Serial.println(On ? "ON" : "OFF");
 			digitalWrite(this->_pin, On ? LOW : HIGH);
 		}
 };
