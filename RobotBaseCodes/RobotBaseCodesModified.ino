@@ -11,6 +11,7 @@ enum STATE {
   APPROACH_FIRE,
   OBSTIK,
   EXTINGUISH_FIRE,
+  END,
   TESTING,
   STOPPED
 };
@@ -34,10 +35,11 @@ Phototransistor Photo_L_Short(PHOTO_L_SHORT_PIN, 339.87, -0.503, 0);
 Sonar sonar(SONAR_TRIG_PIN, SONAR_ECHO_PIN, 10, 0, 0);
 
 // Initialise IR
-IRSensor IR_L_Long(IR_L_LONG_PIN, 5, 5, 90, 2839.7, -0.787, 10, 80);
-IRSensor IR_R_Long(IR_R_LONG_PIN, 5, -5, -90, 3179.4, -0.836, 10, 80);
-IRSensor IR_L_Short(IR_L_SHORT_PIN, 8.5, -5, -90, 1550.3, -0.84, 4, 30);
-IRSensor IR_R_Short(IR_R_SHORT_PIN, 8.5, -5, -90, 1450.6, -0.802, 4, 30);
+IRSensor IR_L_Long(IR_L_LONG_PIN, 5, 5, 90, 18840, -1.234, 10, 50);
+//IRSensor IR_R_Long(IR_R_LONG_PIN, 5, -5, -90, 3179.4, -0.836, 10, 80);
+IRSensor IR_R_Long(IR_R_LONG_PIN, 5, -5, -90, 13792, -1.184, 10, 50);
+IRSensor IR_L_Short(IR_L_SHORT_PIN, 8.5, -5, -90, 6210.9, -1.188, 4, 30);
+IRSensor IR_R_Short(IR_R_SHORT_PIN, 8.5, -5, -90, 8513.8, -1.242, 4, 30);
 
 // Initialise Fan
 Fan fan(FAN_PIN);
@@ -62,7 +64,7 @@ Timer timer_sensors(25);
 Timer timer_cases(25);
 
 // Lights
-FireLights firelight(22, 23, 250);
+FireLights firelight(24,25, 500);
 
 float dist_sonar, value_photo_R_long, value_photo_L_long, dist_photo_R_short, dist_photo_L_short,
       dist_IR_R_long, dist_IR_L_long, dist_IR_R_short, dist_IR_L_short;
@@ -102,32 +104,38 @@ void setup(void)
 
 void loop(void) //main loop
 {
-  firelight.update();
+  
   static STATE machine_state = INITIALISING;
 
   if (timer_cases.expired()){
     switch (machine_state) {
     case INITIALISING:
       machine_state = initialising();
+      firelight.Toggle(false);
       break;
     case FIRE_ALIGNMENT:
       machine_state = fire_alignment();
+      firelight.Toggle(true);
       break;
     case FIRE_DETECTION: //detect and point robot in direction of fire
-    
       machine_state =  fire_detection();
+      firelight.Toggle(true);
       break;
     case APPROACH_FIRE:
-      firelight.update();
       machine_state = approach_fire();
+      firelight.Toggle(true);
       break;
     case OBSTIK:
-      firelight.update();
       machine_state = obstik();
+      firelight.Toggle(true);
       break;
     case EXTINGUISH_FIRE:
-      firelight.update();
       machine_state = extinguish_fire();
+      firelight.Toggle(false);
+      break;
+    case END:
+      machine_state = end();
+      firelight.Toggle(false);
       break;
     case TESTING: //Lipo Battery Volage OK
       machine_state =  testing();
@@ -178,8 +186,8 @@ void Update_Sensors(){
   dist_photo_R_short = Kalman_Photo_L_Short.updateEstimate(Photo_R_Short.getDistance());
   dist_photo_L_short = Kalman_Photo_L_Short.updateEstimate(Photo_L_Short.getDistance());
 
-  dist_IR_R_long = Kalman_IR_R_Long.updateEstimate(IR_R_Long.getDistance());
-  dist_IR_L_long = Kalman_IR_L_Long.updateEstimate(IR_L_Long.getDistance());
+  dist_IR_R_long = Kalman_IR_R_Long.updateEstimate(analogRead(IR_R_LONG_PIN));
+  dist_IR_L_long = Kalman_IR_L_Long.updateEstimate(analogRead(IR_L_LONG_PIN));
   dist_IR_R_short = Kalman_IR_R_Short.updateEstimate(IR_R_Short.getDistance());
   dist_IR_L_short = Kalman_IR_L_Short.updateEstimate(IR_L_Short.getDistance());
 
@@ -240,7 +248,6 @@ STATE fire_detection(){
   if(Photo_R_Long.IsLightDetected() || Photo_L_Long.IsLightDetected()){
     Serial.println("detect fire --> approach fire");
     wheel_kinematics(0,0,0);
-    delay(1000);
     goLeft = true;
      return FIRE_ALIGNMENT;
   }
@@ -250,7 +257,7 @@ STATE fire_detection(){
 STATE fire_alignment() {
 
   int error = value_photo_R_long - value_photo_L_long;
-  float Z = fire_detect_PID.CalculateEffort(error,0.1);
+  float Z = fire_detect_PID.CalculateEffort(error,FIRE_ROTATION_SPEED);
   wheel_kinematics(0, 0, Z);
 
   if(abs(error) < FIRE_DETECTION_TOLERANCE && (Photo_R_Long.IsLightDetected() || Photo_L_Long.IsLightDetected())){
@@ -274,7 +281,7 @@ STATE fire_alignment() {
 
 STATE approach_fire(){
 
-  if(dist_sonar <= OBSTIK_DIST || dist_IR_L_short <= OBSTIK_DIST + OBSTIK_DIST_EXTRA || dist_IR_R_short <= OBSTIK_DIST + OBSTIK_DIST_EXTRA){
+  if(dist_sonar <= OBSTIK_DIST || dist_IR_L_short <= OBSTIK_DIST  || dist_IR_R_short <= OBSTIK_DIST ){
     
     wheel_kinematics(-BASE_SPEED, 0, 0);
     delay(20);
@@ -282,9 +289,9 @@ STATE approach_fire(){
 
     if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) return EXTINGUISH_FIRE;
 
-    if (dist_IR_L_short <= OBSTIK_DIST + OBSTIK_DIST_EXTRA){
+    if (dist_IR_L_short <= OBSTIK_DIST ){
       if (dist_IR_R_long >= OBSTIK_MIN_SPACE) goLeft = false;
-    }else if (dist_IR_R_short <= OBSTIK_DIST + OBSTIK_DIST_EXTRA){
+    }else if (dist_IR_R_short <= OBSTIK_DIST ){
       if (dist_IR_L_long < OBSTIK_MIN_SPACE) goLeft = false;
     }else if (dist_sonar <= OBSTIK_DIST){
       if (dist_IR_L_long < OBSTIK_MIN_SPACE) goLeft = false;
@@ -296,7 +303,7 @@ STATE approach_fire(){
   }
 
   int error = value_photo_R_long - value_photo_L_long;
-  float Z = fire_approach_PID.CalculateEffort(error,0.1);
+  float Z = fire_approach_PID.CalculateEffort(error,FIRE_ROTATION_SPEED);
 
   wheel_kinematics(BASE_SPEED, 0, Z);
 
@@ -315,7 +322,7 @@ STATE obstik(){
   if (movingSideways){
     wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
 
-    if (dist_IR_R_short >= OBSTIK_CLEAR + OBSTIK_DIST_EXTRA && dist_IR_L_short >= OBSTIK_CLEAR + OBSTIK_DIST_EXTRA && dist_sonar >= OBSTIK_CLEAR){
+    if (dist_IR_R_short >= OBSTIK_CLEAR && dist_IR_L_short >= OBSTIK_CLEAR && dist_sonar >= OBSTIK_CLEAR){
       MoveForTime(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0, AVOID_DELAY_SIDEWAYS, true);
       movingSideways = false;
     }
@@ -341,20 +348,26 @@ STATE obstik(){
 
 STATE extinguish_fire(){
   fan.Toggle(ON);
-  Timer timer_fan(10000);
-  while (true){
-    bool fire_detected = Photo_R_Short.IsLightDetected() || Photo_L_Short.IsLightDetected();
-    if (timer_fan.expired() || !fire_detected){
-      fan.Toggle(OFF);
-      break;
-    }
+  
+  bool fire_detected = Photo_R_Short.getDistance() <= 20 || Photo_L_Short.getDistance() <= 20;
+
+  if ( !fire_detected){
+    fan.Toggle(OFF);
+    fires_extinguished++;
+    if (fires_extinguished == 2) return END;
+    MoveForTime(-AVOID_SPEED, 0, 0, 400, true);
+    delay(1000);
+    return FIRE_DETECTION;
   }
 
-  fires_extinguished++;
+  return EXTINGUISH_FIRE;
+}
 
-  if (fires_extinguished == 2) return TESTING;
+STATE end(){
 
-  return FIRE_DETECTION;
+   wheel_kinematics(0, 0, 0);
+
+  return END;
 }
 
 
@@ -370,14 +383,13 @@ STATE testing(){
   #ifndef NO_BATTERY_V_OK
     if (!is_battery_voltage_OK()) return STOPPED;
   #endif
-  float rotation = 0;
-  float difference = (value_photo_R_long - value_photo_L_long);
-  float error = 0 - difference;
-  rotation = error * 0.001;
 
-  rotation = saturate(rotation, 0.1);
+  Serial.print(value_photo_R_long);
+  Serial.print(", ");
+  Serial.println(value_photo_L_long);
 
-  wheel_kinematics(0, 0, 0);
+  
+
 
  
 
@@ -469,11 +481,11 @@ boolean is_battery_voltage_OK()
 
   if (Lipo_level_cal > 0 && Lipo_level_cal < 160) {
     previous_millis = millis();
-//     SerialCom->print("Lipo level:");
-//     SerialCom->print(Lipo_level_cal);
-//     SerialCom->print("%");
-//     SerialCom->print(" : Raw Lipo:");
-//     SerialCom->println(raw_lipo);
+    // SerialCom->print("Lipo level:");
+    // SerialCom->print(Lipo_level_cal);
+    // SerialCom->print("%");
+    // SerialCom->print(" : Raw Lipo:");
+    // SerialCom->println(raw_lipo);
     Low_voltage_counter = 0;
     return true;
   } else {
