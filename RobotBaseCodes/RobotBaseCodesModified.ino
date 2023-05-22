@@ -23,7 +23,7 @@ SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 
 // Initialise PID
 PIDController fire_detect_PID(0.0008, 0, 0.001);
-PIDController fire_approach_PID(0.0001, 0, 0);
+PIDController fire_approach_PID(0.0033, 0, 0);
 
 // Initialise Phototransistors
 Phototransistor Photo_R_Long(PHOTO_R_LONG_PIN, 0, 0, 400);
@@ -198,6 +198,8 @@ void MoveForTime(float x_speed, float y_speed, float rot_speed, float time, bool
   Timer timer(time);
   timer.start(); // Start the timer
   while (true) {
+    Update_Sensors();
+
     wheel_kinematics(x_speed,y_speed,rot_speed);
     if (timer.expired()) {
       if (use_breaking){
@@ -207,6 +209,30 @@ void MoveForTime(float x_speed, float y_speed, float rot_speed, float time, bool
       wheel_kinematics(0,0,0);
       break;
     }
+
+    if(dist_sonar <= OBSTIK_DIST || dist_IR_L_short <= OBSTIK_DIST  || dist_IR_R_short <= OBSTIK_DIST ){
+    
+      wheel_kinematics(-BASE_SPEED, 0, 0);
+      delay(20);
+      wheel_kinematics(0, 0, 0);
+
+      if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) return EXTINGUISH_FIRE;
+      goLeft = true;
+      if (dist_IR_L_short <= OBSTIK_DIST ){
+        if (dist_IR_R_long >= OBSTIK_MIN_SPACE) goLeft = false;
+      }else if (dist_IR_R_short <= OBSTIK_DIST ){
+        if (dist_IR_L_long < OBSTIK_MIN_SPACE) goLeft = false;
+      }else if (dist_sonar <= OBSTIK_DIST){
+        if (dist_IR_L_long < OBSTIK_MIN_SPACE) goLeft = false;
+      }
+
+      Serial.println("fire align--> obstick");
+
+      return OBSTIK;
+    }
+
+    delay(20);
+
   }
 }
 
