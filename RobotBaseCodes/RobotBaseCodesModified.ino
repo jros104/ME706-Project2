@@ -8,6 +8,7 @@ enum STATE {
   INITIALISING,
   FIRE_DETECTION,
   FIRE_ALIGNMENT,
+  FIRE_ALIGNMENT_V2,
   APPROACH_FIRE,
   OBSTIK,
   EXTINGUISH_FIRE,
@@ -24,6 +25,7 @@ SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 // Initialise PID
 PIDController fire_detect_PID(0.0008, 0, 0.001);
 PIDController fire_approach_PID(0.0033, 0, 0);
+PIDController fire_approach_close_PID(0.0066,0,0);
 
 // Initialise Phototransistors
 Phototransistor Photo_R_Long(PHOTO_R_LONG_PIN, 0, 0, 400);
@@ -292,8 +294,24 @@ STATE fire_alignment() {
     return APPROACH_FIRE;
   }
 
+  //return value_photo_R_long < 200 ? FIRE_ALIGNMENT_V2 : FIRE_ALIGNMENT
+
   return FIRE_ALIGNMENT;
-  
+}
+
+STATE fire_alignment_v2() {
+
+  int error = dist_photo_R_short - dist_photo_L_short;
+  float Z = fire_detect_PID.CalculateEffort(error,FIRE_ROTATION_SPEED);
+  wheel_kinematics(0, 0, Z);
+
+  if(abs(error) < FIRE_DETECTION_TOLERANCE){
+    wheel_kinematics(0,0,0);
+    Serial.println("fire align --> approach fire");
+    return APPROACH_FIRE;
+  }
+
+  return FIRE_ALIGNMENT;
 }
 
 
@@ -329,7 +347,13 @@ STATE approach_fire(){
   }
 
   int error = value_photo_R_long - value_photo_L_long;
-  float Z = fire_approach_PID.CalculateEffort(error,FIRE_ROTATION_SPEED);
+  float Z = 0;
+
+  if(dist_photo_R_short < 50 || dist_photo_L_short < 50){
+    Z = fire_approach_PID.CalculateEffort(error,FIRE_ROTATION_SPEED);
+  }else {
+    Z = fire_approach_close_PID.CalculateEffort(error,FIRE_ROTATION_SPEED);
+  }
 
   wheel_kinematics(BASE_SPEED, 0, Z);
 
@@ -381,8 +405,10 @@ STATE extinguish_fire(){
     fan.Toggle(OFF);
     fires_extinguished++;
     if (fires_extinguished == 2) return END;
-    MoveForTime(-AVOID_SPEED, 0, 0, 400, true);
-    delay(1000);
+    wheel_kinematics(-BASE_SPEED,0, 0);
+    delay(REVERSE_TIME);
+    wheel_kinematics(0,0, 0);
+
     return FIRE_DETECTION;
   }
 
@@ -507,11 +533,11 @@ boolean is_battery_voltage_OK()
 
   if (Lipo_level_cal > 0 && Lipo_level_cal < 160) {
     previous_millis = millis();
-    // SerialCom->print("Lipo level:");
-    // SerialCom->print(Lipo_level_cal);
-    // SerialCom->print("%");
-    // SerialCom->print(" : Raw Lipo:");
-    // SerialCom->println(raw_lipo);
+    SerialCom->print("Lipo level:");
+    SerialCom->print(Lipo_level_cal);
+    SerialCom->print("%");
+    SerialCom->print(" : Raw Lipo:");
+    SerialCom->println(raw_lipo);
     Low_voltage_counter = 0;
     return true;
   } else {
