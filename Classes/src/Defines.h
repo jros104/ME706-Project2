@@ -10,7 +10,7 @@
 #define NO_READ_GYRO  //Uncomment if GYRO is not attached.
 #define NO_HC-SR04 //Uncomment of HC-SR04 ultrasonic ranging sensor is not attached.
 //#define NO_BATTERY_V_OK //Uncomment of BATTERY_V_OK if you do not care about battery damage.
-#define USE_KALMAN true
+#define USE_KALMAN false
 
 #define PHOTO_L_SHORT_PIN A5
 #define PHOTO_R_SHORT_PIN A4
@@ -48,6 +48,7 @@
 #define OBSTIK_CLEAR 20
 #define AVOID_SPEED BASE_SPEED
 #define AVOID_DELAY_SIDEWAYS 200
-#define AVOID_DELAY_FORWARDS 1400
+#define AVOID_DELAY_FORWARDS 1100
+#define REVERSE_TIME 300
 
 #endif
