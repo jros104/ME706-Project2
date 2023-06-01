@@ -24,9 +24,10 @@ SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 
 // Initialise PID
 PIDController fire_detect_PID(0.004, 0, 0);
-PIDController fire_detect_2_PID(0.01, 0, 0);
+PIDController fire_detect_2_PID(0.5, 0, 0);
 PIDController fire_approach_PID(0.0033, 0, 0);
 PIDController fire_approach_close_PID(0.005,0,0);
+PIDController sonar_approach_PID(0.1, 0, 0);
 
 // Initialise Phototransistors
 Phototransistor Photo_R_Long(PHOTO_R_LONG_PIN, 0, 0, 400);
@@ -60,6 +61,9 @@ Kalman Kalman_IR_L_Short(1, 1, 30, 0);
 Kalman Kalman_IR_R_Short(1, 1, 30, 0);
 
 
+
+bool extraTime = false;
+
 // Exit Conditions
 
 // Timer
@@ -67,7 +71,7 @@ Timer timer_sensors(25);
 Timer timer_cases(25);
 
 // Lights
-FireLights firelight(24,25, 500);
+FireLights firelight(29,25, 500);
 
 float dist_sonar, value_photo_R_long, value_photo_L_long, dist_photo_R_short, dist_photo_L_short,
       dist_IR_R_long, dist_IR_L_long, dist_IR_R_short, dist_IR_L_short;
@@ -77,6 +81,8 @@ bool goLeft = false;
 bool movingSideways = true;
 bool closePID = false;
 
+unsigned long startTime;
+float avaliableSpace;
 
 //   ___ ___ _____ _   _ ___ 
 //  / __| __|_   _| | | | _ \
@@ -87,6 +93,7 @@ void setup(void)
 {
  
   pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(29, OUTPUT);
 
   // Setup the Serial port and pointer, the pointer allows switching the debug info through the USB port(Serial) or Bluetooth port(Serial1) with ease.
   SerialCom = &Serial;
@@ -128,7 +135,7 @@ void loop(void) //main loop
       break;
     case FIRE_DETECTION: //detect and point robot in direction of fire
       machine_state =  fire_detection();
-      firelight.Toggle(true);
+      firelight.Toggle(false);
       break;
     case APPROACH_FIRE:
       machine_state = approach_fire();
@@ -140,7 +147,7 @@ void loop(void) //main loop
       break;
     case EXTINGUISH_FIRE:
       machine_state = extinguish_fire();
-      firelight.Toggle(false);
+      firelight.Toggle(true);
       break;
     case END:
       machine_state = end();
@@ -180,6 +187,9 @@ void Initialise_Sensors(){
 
 }
 
+
+
+
 void Update_Sensors(){
  //Kalamn update value
   dist_sonar = sonar.getDistance();
@@ -192,7 +202,7 @@ void Update_Sensors(){
     value_photo_L_long = Photo_L_Long.getAnalog() -5;
   }
   
-  dist_photo_R_short = Kalman_Photo_L_Short.updateEstimate(Photo_R_Short.getDistance());
+  dist_photo_R_short = Kalman_Photo_R_Short.updateEstimate(Photo_R_Short.getDistance());
   dist_photo_L_short = Kalman_Photo_L_Short.updateEstimate(Photo_L_Short.getDistance());
 
   dist_IR_R_long = Kalman_IR_R_Long.updateEstimate(IR_R_Long.getDistance());
@@ -209,7 +219,7 @@ STATE DecideDirection(STATE stateIN){
       delay(20);
       wheel_kinematics(0, 0, 0);
 
-      if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) return FIRE_ALIGNMENT_V2;
+      if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) return FIRE_ALIGNMENT_V2 ;
       
 
 
@@ -225,10 +235,17 @@ STATE DecideDirection(STATE stateIN){
 
       while (true) {
         Update_Sensors();
+        wheel_kinematics(0,0,OBSTIK_ROTATE_CHECK_SPEED);
+
         if (dist_IR_L_long < minSpaceLeft) minSpaceLeft = dist_IR_L_long;
         if (dist_IR_R_long < minSpaceRight) minSpaceRight = dist_IR_R_long;
-        if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) return FIRE_ALIGNMENT_V2;
-        wheel_kinematics(0,0,OBSTIK_ROTATE_CHECK_SPEED);
+        if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) {
+          wheel_kinematics(0, 0, -OBSTIK_ROTATE_CHECK_SPEED);
+          delay(20);
+          wheel_kinematics(0, 0, 0);
+          return FIRE_ALIGNMENT_V2;
+        }
+        
         if (timer1.expired()) {
           wheel_kinematics(0,0,0);
           break;
@@ -243,7 +260,12 @@ STATE DecideDirection(STATE stateIN){
         Update_Sensors();
         if (dist_IR_L_long < minSpaceLeft) minSpaceLeft = dist_IR_L_long;
         if (dist_IR_R_long < minSpaceRight) minSpaceRight = dist_IR_R_long;
-        if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) return FIRE_ALIGNMENT_V2;
+        if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20){
+          wheel_kinematics(0, 0, OBSTIK_ROTATE_CHECK_SPEED);
+          delay(20);
+          wheel_kinematics(0, 0, 0);
+          return FIRE_ALIGNMENT_V2;
+        } 
         wheel_kinematics(0,0,-OBSTIK_ROTATE_CHECK_SPEED);
         if (timer2.expired()) {
           wheel_kinematics(0,0,0);
@@ -270,16 +292,17 @@ STATE DecideDirection(STATE stateIN){
 
      
 
-      if (!A && !B && C)        goLeft = minSpaceLeft >= 30 ? true: false;
+      if (!A && !B && C)        goLeft = minSpaceLeft >= 25 ? true: false;
       else if (!A && B && !C)   goLeft = minSpaceLeft > minSpaceRight;
-      else if (!A && B && C)    goLeft = minSpaceLeft >= 40 ? true: false; 
-      else if (A && !B && !C)   goLeft = minSpaceRight >= 30 ? false: true;
+      else if (!A && B && C)    goLeft = minSpaceLeft >= 35 ? true: false; 
+      else if (A && !B && !C)   goLeft = minSpaceRight >= 25 ? false: true;
       else if (A && !B && C)    goLeft = minSpaceLeft > minSpaceRight;
-      else if (A && B && !C)    goLeft = minSpaceRight >= 40 ? false: true; 
-      else if (A && B && C)     goLeft = minSpaceLeft > minSpaceRight;
+      else if (A && B && !C)    goLeft = minSpaceRight >= 35 ? false: true; 
+      else if (A && B && C)     return FIRE_DETECTION;
 
       Serial.println("fire align--> obstick");
-
+      startTime = millis();
+      avaliableSpace = goLeft ? dist_IR_L_long : dist_IR_R_long;
       return OBSTIK;
     }
   return stateIN;
@@ -332,6 +355,7 @@ STATE initialising() {
   wheel_kinematics(0, 0, goLeft ? -FIRE_DETECTION_ROTATION_SPEED : FIRE_DETECTION_ROTATION_SPEED);
   delay(250);
   
+
   return FIRE_DETECTION;
 }
 
@@ -377,6 +401,7 @@ STATE fire_alignment_v2() {
 
   float error = dist_photo_R_short - dist_photo_L_short;
   float Z = fire_detect_2_PID.CalculateEffort(error,FIRE_ROTATION_SPEED);
+
   wheel_kinematics(0, 0, Z);
 
   if(abs(error) <= 0.5){
@@ -426,30 +451,52 @@ STATE approach_fire(){
 //   \___/|___/___/ |_| |___|_|\_\
                                                                                    
 
-STATE obstik(){
 
+STATE obstik(){
+  
   // Moving Sideways
   if (movingSideways){
     wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
 
     // If there is no space on the sides, recalculate which direction to head.
     // This is where the robot can get stuck in an infinite loop.
-    if (dist_IR_L_long <= 13 && dist_IR_R_long <= 13) {
+    if ((dist_IR_L_long <= 13 && goLeft) || (dist_IR_R_long <= 13 && !goLeft)) {
       movingSideways = true;
-      return OBSTIK;
+      return DecideDirection(OBSTIK);
+    }
+
+    if(dist_sonar <= 4){
+      wheel_kinematics(-1,0,0);
+      delay(100);
+      wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
+    }else if(dist_IR_L_short <= 4){
+      wheel_kinematics(-1,0,0);
+      delay(100);
+      wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
+    }else if(dist_IR_R_short <= 4){
+      wheel_kinematics(-1,0,0);
+      delay(100);
+      wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
+    }
+    
+    if (millis() - startTime >= ((avaliableSpace - 3) / (AVOID_SPEED)*1000)){
+      movingSideways = true;
+      return DecideDirection(OBSTIK);
     }
 
     // If the robot is clear of obstacles in front, move a little more, then can move forward.
     if (dist_IR_R_short >= OBSTIK_CLEAR && dist_IR_L_short >= OBSTIK_CLEAR && dist_sonar >= OBSTIK_CLEAR){
       MoveForTime(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0, AVOID_DELAY_SIDEWAYS, true);
       movingSideways = false;
+
     }
   }
-
+  
   // Moving forwards
   else{
-  
-    Timer timer(AVOID_DELAY_FORWARDS);
+    unsigned long extraDelay = 0;
+    //if (millis() - startTime >= (15.0/AVOID_SPEED)*1000) extraDelay = 400;
+    Timer timer(AVOID_DELAY_FORWARDS+extraDelay);
     timer.start(); // Start the timer
     while (true) {
       wheel_kinematics(AVOID_SPEED,0,0);
@@ -459,9 +506,16 @@ STATE obstik(){
       if (dist_IR_R_short <= OBSTIK_CLEAR && dist_IR_L_short <= OBSTIK_CLEAR && dist_sonar <= OBSTIK_CLEAR) {
         movingSideways = true;
         wheel_kinematics(0,0,0);
-        delay(2000);
+        //delay(2000);
         return FIRE_DETECTION;
       }
+
+      STATE stateOut = DecideDirection(TESTING);
+      if (stateOut == OBSTIK || stateOut == EXTINGUISH_FIRE){
+        movingSideways = true;
+        return stateOut;
+      }
+
 
       // Exiting loop
       if (timer.expired()) {
@@ -495,7 +549,7 @@ STATE extinguish_fire(){
   fan.Toggle(ON);
   bool fire_detected = Photo_R_Short.getDistance() <= 20 || Photo_L_Short.getDistance() <= 20;
 
-  if ( !fire_detected){
+  if (!fire_detected){
 
     fan.Toggle(OFF);
     fires_extinguished++;
