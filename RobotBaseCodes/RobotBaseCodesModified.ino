@@ -60,7 +60,8 @@ Kalman Kalman_IR_R_Long(1, 10, 80, 0);
 Kalman Kalman_IR_L_Short(1, 1, 30, 0);
 Kalman Kalman_IR_R_Short(1, 1, 30, 0);
 
-
+int lastDir[100] = {0};
+int index = 0;
 
 bool extraTime = false;
 
@@ -119,6 +120,8 @@ void loop(void) //main loop
   
   static STATE machine_state = INITIALISING;
 
+  
+
   if (timer_cases.expired()){
     switch (machine_state) {
     case INITIALISING:
@@ -158,6 +161,7 @@ void loop(void) //main loop
       break;
     case STOPPED: //Stop of Lipo Battery voltage is too low, to protect Battery
       machine_state =  stopped();
+      firelight.Toggle(false);
       break;
     };
     timer_cases.start();
@@ -221,7 +225,9 @@ STATE DecideDirection(STATE stateIN){
 
       if((dist_photo_R_short + dist_photo_L_short) / 2.0 <= 20) return FIRE_ALIGNMENT_V2 ;
       
-
+      wheel_kinematics(-OBSTIK_DISTANCE_CHECK_SPEED,0,0);
+      delay(OBSTIK_DISTANCE_CHECK_TIME);
+      wheel_kinematics(0,0,0);
 
       bool A = dist_IR_L_short <= OBSTIK_DIST_IR;
       bool B = dist_sonar <= OBSTIK_DIST_SONAR;
@@ -266,6 +272,7 @@ STATE DecideDirection(STATE stateIN){
           wheel_kinematics(0, 0, 0);
           return FIRE_ALIGNMENT_V2;
         } 
+
         wheel_kinematics(0,0,-OBSTIK_ROTATE_CHECK_SPEED);
         if (timer2.expired()) {
           wheel_kinematics(0,0,0);
@@ -290,6 +297,23 @@ STATE DecideDirection(STATE stateIN){
         delay(20);
       }
 
+      wheel_kinematics(OBSTIK_DISTANCE_CHECK_SPEED,0,0);
+      delay(OBSTIK_DISTANCE_CHECK_TIME);
+      wheel_kinematics(-OBSTIK_DISTANCE_CHECK_SPEED,0,0);
+      delay(20);
+      wheel_kinematics(0,0,0);
+
+      while (true){
+        Update_Sensors();
+        int error = value_photo_R_long - value_photo_L_long;
+        float Z = fire_detect_PID.CalculateEffort(error,FIRE_ROTATION_SPEED);
+        wheel_kinematics(0, 0, -Z);
+
+        if(abs(error) < FIRE_DETECTION_TOLERANCE && (Photo_R_Long.IsLightDetected() || Photo_L_Long.IsLightDetected())){
+          wheel_kinematics(0,0,0);
+          break;
+        }
+      }
      
 
       if (!A && !B && C)        goLeft = minSpaceLeft >= 25 ? true: false;
@@ -300,9 +324,12 @@ STATE DecideDirection(STATE stateIN){
       else if (A && B && !C)    goLeft = minSpaceRight >= 35 ? false: true; 
       else if (A && B && C)     return FIRE_DETECTION;
 
+
+
       Serial.println("fire align--> obstick");
       startTime = millis();
       avaliableSpace = goLeft ? dist_IR_L_long : dist_IR_R_long;
+
       return OBSTIK;
     }
   return stateIN;
@@ -352,7 +379,7 @@ STATE initialising() {
 
   Initialise_Sensors();
 
-  wheel_kinematics(0, 0, goLeft ? -FIRE_DETECTION_ROTATION_SPEED : FIRE_DETECTION_ROTATION_SPEED);
+  //wheel_kinematics(0, 0, goLeft ? -FIRE_DETECTION_ROTATION_SPEED : FIRE_DETECTION_ROTATION_SPEED);
   delay(250);
   
 
@@ -377,6 +404,7 @@ STATE fire_detection(){
     Serial.println("detect fire --> approach fire");
     wheel_kinematics(0,0,0);
     goLeft = true;
+    movingSideways = true;
     return FIRE_ALIGNMENT;
   }
   return FIRE_DETECTION;
@@ -431,7 +459,6 @@ STATE approach_fire(){
   if((dist_photo_R_short < 50 || dist_photo_L_short < 50) && !closePID){
     closePID = true;
     wheel_kinematics(0,0,0);
-    delay(300);
   }
 
   // PID selection
@@ -460,61 +487,69 @@ STATE obstik(){
 
     // If there is no space on the sides, recalculate which direction to head.
     // This is where the robot can get stuck in an infinite loop.
-    if ((dist_IR_L_long <= 13 && goLeft) || (dist_IR_R_long <= 13 && !goLeft)) {
+    if ((dist_IR_L_long <= 13 && goLeft) || (dist_IR_R_long <= 13 && !goLeft) && (dist_sonar <= OBSTIK_DIST_SONAR || dist_IR_L_short <= OBSTIK_DIST_IR || dist_IR_R_short <= OBSTIK_DIST_IR )) {
       movingSideways = true;
-      return DecideDirection(OBSTIK);
+      wheel_kinematics(0,0,0);
+      return FIRE_DETECTION;
     }
 
-    if(dist_sonar <= 4){
-      wheel_kinematics(-1,0,0);
+    if(dist_sonar <= 3.5){
+      wheel_kinematics(-2,goLeft ? AVOID_SPEED : -AVOID_SPEED,0);
       delay(100);
       wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
-    }else if(dist_IR_L_short <= 4){
-      wheel_kinematics(-1,0,0);
+    }else if(dist_IR_L_short <= 3.5){
+      wheel_kinematics(-2,goLeft ? AVOID_SPEED : -AVOID_SPEED,0);
       delay(100);
       wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
-    }else if(dist_IR_R_short <= 4){
-      wheel_kinematics(-1,0,0);
+    }else if(dist_IR_R_short <= 3.5){
+      wheel_kinematics(-2,goLeft ? AVOID_SPEED : -AVOID_SPEED,0);
+      delay(100);
+      wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
+    }
+
+    if(dist_IR_R_short >= OBSTIK_DIST_IR && dist_IR_L_short >= OBSTIK_DIST_IR && dist_sonar >= OBSTIK_DIST_SONAR){
+      wheel_kinematics(2,goLeft ? AVOID_SPEED : -AVOID_SPEED,0);
       delay(100);
       wheel_kinematics(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0);
     }
     
-    if (millis() - startTime >= ((avaliableSpace - 3) / (AVOID_SPEED)*1000)){
-      movingSideways = true;
-      return DecideDirection(OBSTIK);
-    }
+    // if (millis() - startTime >= ((avaliableSpace - 2) / (AVOID_SPEED)*1000)){
+    //   movingSideways = true;
+    //   wheel_kinematics(0,0,0);
+    //   return DecideDirection(OBSTIK);
+    // }
 
     // If the robot is clear of obstacles in front, move a little more, then can move forward.
-    if (dist_IR_R_short >= OBSTIK_CLEAR && dist_IR_L_short >= OBSTIK_CLEAR && dist_sonar >= OBSTIK_CLEAR){
+    if (dist_IR_R_short >= OBSTIK_CLEAR_IR && dist_IR_L_short >= OBSTIK_CLEAR_IR && dist_sonar >= OBSTIK_CLEAR_SONAR){
       MoveForTime(0, goLeft ? AVOID_SPEED : -AVOID_SPEED, 0, AVOID_DELAY_SIDEWAYS, true);
       movingSideways = false;
-
     }
   }
+
+  
   
   // Moving forwards
   else{
     unsigned long extraDelay = 0;
     //if (millis() - startTime >= (15.0/AVOID_SPEED)*1000) extraDelay = 400;
-    Timer timer(AVOID_DELAY_FORWARDS+extraDelay);
+    Timer timer(AVOID_DELAY_FORWARDS);
     timer.start(); // Start the timer
     while (true) {
       wheel_kinematics(AVOID_SPEED,0,0);
       Update_Sensors();
 
-      // if any of the front sensors detect obstacle, need to restart function
-      if (dist_IR_R_short <= OBSTIK_CLEAR && dist_IR_L_short <= OBSTIK_CLEAR && dist_sonar <= OBSTIK_CLEAR) {
-        movingSideways = true;
-        wheel_kinematics(0,0,0);
-        //delay(2000);
+    
+
+      if (dist_sonar <= OBSTIK_DIST_SONAR || dist_IR_L_short <= OBSTIK_DIST_IR || dist_IR_R_short <= OBSTIK_DIST_IR ){
         return FIRE_DETECTION;
       }
 
-      STATE stateOut = DecideDirection(TESTING);
-      if (stateOut == OBSTIK || stateOut == EXTINGUISH_FIRE){
-        movingSideways = true;
-        return stateOut;
-      }
+
+      // STATE stateOut = DecideDirection(TESTING);
+      // if (stateOut == OBSTIK || stateOut == EXTINGUISH_FIRE){
+      //   movingSideways = true;
+      //   return stateOut;
+      // }
 
 
       // Exiting loop
@@ -536,6 +571,7 @@ STATE obstik(){
   }
   
   return OBSTIK;
+
 
 }
 
@@ -563,6 +599,7 @@ STATE extinguish_fire(){
     // reseting a PID so it uses long range photo transistors
     closePID = false;
     delay(1000);
+    index = 0;
     return FIRE_DETECTION;
   }
 
@@ -588,13 +625,13 @@ STATE testing(){
     if (!is_battery_voltage_OK()) return STOPPED;
   #endif
 
-  Serial.print(dist_IR_R_long);
-  Serial.print("\t");
-  Serial.print(dist_IR_L_long);
-  Serial.print("\t");
-  Serial.print(dist_IR_R_short);
-  Serial.print("\t");
-  Serial.println(dist_IR_L_short);
+  // Serial.print(dist_IR_R_long);
+  // Serial.print("\t");
+  // Serial.print(dist_IR_L_long);
+  // Serial.print("\t");
+  // Serial.print(dist_IR_R_short);
+  // Serial.print("\t");
+  // Serial.println(dist_IR_L_short);
 
 
 
@@ -691,11 +728,11 @@ boolean is_battery_voltage_OK()
 
   if (Lipo_level_cal > 0 && Lipo_level_cal < 160) {
     previous_millis = millis();
-    // SerialCom->print("Lipo level:");
-    // SerialCom->print(Lipo_level_cal);
-    // SerialCom->print("%");
-    // SerialCom->print(" : Raw Lipo:");
-    // SerialCom->println(raw_lipo);
+    SerialCom->print("Lipo level:");
+    SerialCom->print(Lipo_level_cal);
+    SerialCom->print("%");
+    SerialCom->print(" : Raw Lipo:");
+    SerialCom->println(raw_lipo);
     Low_voltage_counter = 0;
     return true;
   } else {
